@@ -38,6 +38,7 @@ const REPLAY_RANDOM_START_DELAY_MAX_SECONDS = 1.0;
 const HUMAN_DEATH_REPLAY_DELAY_SECONDS = 3.0;
 const VIEW_LOCK_INTERVAL = 0.05;
 const OPPONENT_BOT_CHECK_INTERVAL = 1.0;
+const OPPONENT_BOT_TARGET_COUNT = 1;
 const ECONOMY_MONEY = 16000;
 const ECONOMY_ENFORCE_INTERVAL = 0.35;
 const DROPPED_WEAPON_CLEANUP_INTERVAL = 0.25;
@@ -545,6 +546,7 @@ const SERVER_SETUP_COMMANDS = [
   "mp_buytime 9999",
   "mp_buy_anywhere 1",
   "sv_infinite_ammo 1",
+  `bot_quota ${OPPONENT_BOT_TARGET_COUNT}`,
   "bot_quota_mode normal",
   "bot_join_after_player 0",
   "bot_join_team any",
@@ -1852,7 +1854,7 @@ function botJoinTeamValue(team) {
 
 function reserveBotQuota(team, extra = 1) {
   server(`bot_join_team ${botJoinTeamValue(team)}`);
-  server(`bot_quota ${Math.min(10, Math.max(1, countBots() + extra))}`);
+  server(`bot_quota ${Math.min(10, Math.max(OPPONENT_BOT_TARGET_COUNT, countBots() + extra))}`);
 }
 
 function kickBot(controller) {
@@ -1874,7 +1876,7 @@ function pruneExtraBots(keepSlot) {
       kickBot(controller);
     }
   }
-  server("bot_quota 1");
+  server(`bot_quota ${OPPONENT_BOT_TARGET_COUNT}`);
 }
 
 function botKeepPriority(controller) {
@@ -1924,15 +1926,25 @@ function enforceSingleOpponentBot(enemyTeam) {
   const keepSlot = keep.GetPlayerSlot();
   lastBotSlot = keepSlot;
   selectedBotSlot = keepSlot;
+  const keepAlive = !!pawnOf(keep);
   const botCountBeforePrune = countBots();
   const extraBots = Math.max(0, botCountBeforePrune - 1);
   if (extraBots > 0) {
     pruneExtraBots(keepSlot);
     chat(`check_bot：只保留1个敌方${teamName(enemyTeam)} bot，已清理${extraBots}个其它bot`);
   } else {
-    server("bot_quota 1");
+    server(`bot_quota ${OPPONENT_BOT_TARGET_COUNT}`);
   }
-  return keep;
+  return keepAlive ? keep : null;
+}
+
+function queueOpponentBotMaintenance(controller = null, delay = 0.35) {
+  const human = controller && !controller.IsBot() ? controller : findHuman();
+  if (human) {
+    requestOpponentBotForController(human, delay);
+  }
+  nextOpponentBotCheckAt = -1;
+  scheduleThink(Math.max(0.05, delay));
 }
 
 function ensureOpponentBot(force = false) {
@@ -1958,6 +1970,7 @@ function ensureOpponentBot(force = false) {
     if (enforceSingleOpponentBot(enemyTeam)) {
       return;
     }
+    reserveBotQuota(enemyTeam, OPPONENT_BOT_TARGET_COUNT);
   } else {
     const enemyBot = findBotOnTeam(enemyTeam);
     if (enemyBot || countBotsOnTeam(enemyTeam) > 0) {
@@ -7849,6 +7862,7 @@ Instance.OnPlayerConnect(({ player }) => {
     lastHumanSlot = player.GetPlayerSlot();
     assistHumanSpawn(player, "connect");
     scheduleHumanSpawnLoadout(player, "connect");
+    queueOpponentBotMaintenance(player, 0.75);
     resetStartupUseInstruction(1.5);
     resetStartupLanguageTip(START_LANGUAGE_TIP_DELAY_SECONDS);
     resetStartupDifficultyTip(START_DIFFICULTY_TIP_DELAY_SECONDS);
@@ -7871,6 +7885,7 @@ Instance.OnPlayerActivate(({ player }) => {
     requestDefaultHumanSpawn(player, "activate", 1.0);
     scheduleHumanSpawnLoadout(player, "activate");
     showCfgBackupGateWarning();
+    queueOpponentBotMaintenance(player, 0.35);
     ensureOpponentBot(true);
   }
   requestOpponentBotForController(player, 1.0);
@@ -7914,6 +7929,7 @@ Instance.OnPlayerReset(({ player }) => {
   }
   requestOpponentBotForTeam(player.GetTeamNumber(), lastHumanSlot, 0.55);
   ensureOpponentBot(true);
+  queueOpponentBotMaintenance(controller, 0.55);
 });
 
 if (Instance.OnPlayerDeath) {

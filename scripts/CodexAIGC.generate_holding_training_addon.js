@@ -357,7 +357,7 @@ mp_respawn_on_death_t 1
 mp_buytime 9999
 mp_buy_anywhere 1
 sv_infinite_ammo 1
-bot_quota 0
+bot_quota 1
 bot_quota_mode normal
 bot_join_after_player 0
 bot_join_team any
