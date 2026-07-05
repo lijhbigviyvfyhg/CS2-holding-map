@@ -10,20 +10,31 @@
   "landmarkName": "nuke_holding_training_landmark",
   "groupLabelCount": 32,
   "defaultPlayerStart": {
-    "origin": "0 0 64",
-    "angles": "0 0 0"
+    "origin": "-1929.000000 -1025.000000 -400.634003",
+    "angles": "0 3.0 0"
   },
-  "ctSpawnPoints": [
-    { "origin": "0 0 64", "angles": "0 0 0" },
-    { "origin": "64 0 64", "angles": "0 0 0" },
-    { "origin": "-64 0 64", "angles": "0 0 0" },
-    { "origin": "0 64 64", "angles": "0 0 0" }
-  ],
-  "tSpawnPoints": [
-    { "origin": "256 0 64", "angles": "0 180 0" },
-    { "origin": "320 0 64", "angles": "0 180 0" },
-    { "origin": "384 0 64", "angles": "0 180 0" },
-    { "origin": "448 0 64", "angles": "0 180 0" }
+  "ctSpawnPoints": [],
+  "tSpawnPoints": [],
+  "wrapperSpawnPlatforms": [
+    {
+      "nodeID": 9901,
+      "referenceID": "0x17000000000f1001",
+      "xmin": "-2432.000000",
+      "xmax": "-1408.000000",
+      "ymin": "-1408.000000",
+      "ymax": "-640.000000",
+      "top": "-416.634003",
+      "bottom": "-448.634003"
+    },
+    {
+      "nodeID": 9902,
+      "referenceID": "0x17000000000f1002",
+      "xmin": "2100.000000",
+      "xmax": "2700.000000",
+      "ymin": "-650.000000",
+      "ymax": "-150.000000",
+      "top": "-351.000000",
+      "bottom": "-383.000000"
+    }
   ]
 }
-
