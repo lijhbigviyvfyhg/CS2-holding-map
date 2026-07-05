@@ -1,0 +1,29 @@
+{
+  "contentAddon": "nuke_holding_training",
+  "communityAddon": "de_nuke_holding_training",
+  "baseMapName": "de_nuke",
+  "mapName": "de_nuke_holding_training",
+  "addonTitle": "Nuke Holding Training Map",
+  "addonDescription": "Nuke holding and autopeek training map with realistic route playback, adjustable kill delay, spawn groups, cfg recovery, and constant practice economy.",
+  "addonVersion": "0.1.0",
+  "loaderName": "nuke_holding_training_loader",
+  "landmarkName": "nuke_holding_training_landmark",
+  "groupLabelCount": 32,
+  "defaultPlayerStart": {
+    "origin": "0 0 64",
+    "angles": "0 0 0"
+  },
+  "ctSpawnPoints": [
+    { "origin": "0 0 64", "angles": "0 0 0" },
+    { "origin": "64 0 64", "angles": "0 0 0" },
+    { "origin": "-64 0 64", "angles": "0 0 0" },
+    { "origin": "0 64 64", "angles": "0 0 0" }
+  ],
+  "tSpawnPoints": [
+    { "origin": "256 0 64", "angles": "0 180 0" },
+    { "origin": "320 0 64", "angles": "0 180 0" },
+    { "origin": "384 0 64", "angles": "0 180 0" },
+    { "origin": "448 0 64", "angles": "0 180 0" }
+  ]
+}
+
