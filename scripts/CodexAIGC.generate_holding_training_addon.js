@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 function parseArgs(argv) {
   const args = {};
@@ -37,12 +38,32 @@ function readConfig(configPath) {
   config.loaderName = config.loaderName || `${config.mapName}_loader`;
   config.landmarkName = config.landmarkName || `${config.mapName}_landmark`;
   config.groupLabelCount = Number(config.groupLabelCount || 32);
-  config.ctSpawnPoints = Array.isArray(config.ctSpawnPoints) && config.ctSpawnPoints.length ? config.ctSpawnPoints : [config.defaultPlayerStart];
-  config.tSpawnPoints = Array.isArray(config.tSpawnPoints) && config.tSpawnPoints.length ? config.tSpawnPoints : [];
+  config.ctSpawnPoints = Array.isArray(config.ctSpawnPoints) ? config.ctSpawnPoints : [config.defaultPlayerStart];
+  config.tSpawnPoints = Array.isArray(config.tSpawnPoints) ? config.tSpawnPoints : [];
+  config.wrapperSpawnPlatforms = Array.isArray(config.wrapperSpawnPlatforms) ? config.wrapperSpawnPlatforms : [];
   config.addonTitle = config.addonTitle || `${config.baseMapName} Holding Training Map`;
   config.addonDescription = config.addonDescription || `${config.baseMapName} holding training map.`;
   config.addonVersion = config.addonVersion || "0.1.0";
   return config;
+}
+
+function parseVectorString(value, label) {
+  const parts = String(value || "").trim().split(/\s+/).map(Number);
+  if (parts.length < 3 || parts.slice(0, 3).some((part) => !Number.isFinite(part))) {
+    throw new Error(`Invalid vector for ${label}: ${value}`);
+  }
+  return parts.slice(0, 3);
+}
+
+function jsNumber(value) {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid number: ${value}`);
+  }
+  return Number.isInteger(value) ? `${value}.0` : String(value);
+}
+
+function jsVectorArray(value, label) {
+  return `[${parseVectorString(value, label).map(jsNumber).join(", ")}]`;
 }
 
 function emptyRelay(id) {
@@ -205,6 +226,96 @@ function replaceElementArrayAfter(text, anchor, replacement) {
   if (openIndex < 0) throw new Error(`Could not find array after anchor: ${anchor}`);
   const closeIndex = findMatchingBracket(text, openIndex);
   return `${text.slice(0, openIndex + 1)}\n${replacement}\n${text.slice(closeIndex)}`;
+}
+
+function extractFirstMapMesh(text) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.includes('"CMapMesh"'));
+  if (start < 0) {
+    throw new Error("No CMapMesh template found");
+  }
+
+  let depth = 0;
+  let sawOpen = false;
+  for (let i = start; i < lines.length; i += 1) {
+    for (const ch of lines[i]) {
+      if (ch === "{") {
+        depth += 1;
+        sawOpen = true;
+      } else if (ch === "}") {
+        depth -= 1;
+      }
+    }
+    if (sawOpen && depth === 0) {
+      return lines.slice(start, i + 1).join("\n").replace(/,\s*$/, "");
+    }
+  }
+  throw new Error("Unterminated CMapMesh template");
+}
+
+function replaceElementIds(block) {
+  return block.replace(/"id" "elementid" "[0-9a-f-]{36}"/gi, () => `"id" "elementid" "${crypto.randomUUID()}"`);
+}
+
+function replacePositionVertices(block, vertices) {
+  const marker = '"name" "string" "position:0"';
+  const markerAt = block.indexOf(marker);
+  if (markerAt < 0) throw new Error("Template lacks position stream");
+  const dataAt = block.indexOf('"data" "vector3_array"', markerAt);
+  if (dataAt < 0) throw new Error("Template lacks position vector data");
+  const openAt = block.indexOf("[", dataAt);
+  const closeAt = block.indexOf("]", openAt);
+  if (openAt < 0 || closeAt < 0) throw new Error("Malformed position vector array");
+  const vertexLines = vertices
+    .map((v, index) => `\t\t\t\t\t\t\t\t\t"${v}"${index === vertices.length - 1 ? "" : ","}`)
+    .join("\n");
+  return `${block.slice(0, openAt + 1)}\n${vertexLines}\n\t\t\t\t\t\t\t\t]${block.slice(closeAt + 1)}`;
+}
+
+function makePlatformMesh(template, platform, index) {
+  const required = ["xmin", "xmax", "ymin", "ymax", "top", "bottom"];
+  for (const key of required) {
+    if (platform[key] === undefined) {
+      throw new Error(`Missing wrapperSpawnPlatforms[${index}].${key}`);
+    }
+  }
+
+  const nodeID = String(platform.nodeID || 9901 + index);
+  const referenceID = String(platform.referenceID || `0x17000000000f1${String(index + 1).padStart(3, "0")}`);
+  let block = replaceElementIds(template);
+  block = block.replace(/"nodeID" "int" "\d+"/, `"nodeID" "int" "${nodeID}"`);
+  block = block.replace(/"referenceID" "uint64" "0x[0-9a-f]+"/i, `"referenceID" "uint64" "${referenceID}"`);
+  block = block.replaceAll("materials/dev/dev_measuregeneric01.vmat", "materials/tools/toolsclip.vmat");
+  return replacePositionVertices(block, [
+    `${platform.xmin} ${platform.ymin} ${platform.top}`,
+    `${platform.xmax} ${platform.ymin} ${platform.top}`,
+    `${platform.xmin} ${platform.ymax} ${platform.top}`,
+    `${platform.xmax} ${platform.ymax} ${platform.bottom}`,
+    `${platform.xmin} ${platform.ymax} ${platform.bottom}`,
+    `${platform.xmax} ${platform.ymax} ${platform.top}`,
+    `${platform.xmax} ${platform.ymin} ${platform.bottom}`,
+    `${platform.xmin} ${platform.ymin} ${platform.bottom}`,
+  ]);
+}
+
+function makePlatformMeshes(mapTemplate, config) {
+  if (!config.wrapperSpawnPlatforms.length) {
+    return "";
+  }
+  const meshTemplate = extractFirstMapMesh(mapTemplate);
+  return config.wrapperSpawnPlatforms
+    .map((platform, index) => makePlatformMesh(meshTemplate, platform, index))
+    .join(",\n");
+}
+
+function addPlatformMaterialReference(text, config) {
+  if (!config.wrapperSpawnPlatforms.length || text.includes('"materials/tools/toolsclip.vmat"')) {
+    return text;
+  }
+  return text.replace(
+    /(\t\t"materials\/dev\/dev_measuregeneric01\.vmat",\r?\n)/,
+    `$1\t\t"materials/tools/toolsclip.vmat",\n`,
+  );
 }
 
 function makeInsertedEntities(config) {
@@ -425,6 +536,20 @@ function copyTemplate(repoRoot, templateName, targetPath) {
   fs.copyFileSync(path.join(repoRoot, "templates", templateName), targetPath);
 }
 
+function writeTrainingScript(repoRoot, config, targetPath) {
+  const templatePath = path.join(repoRoot, "templates", "CodexAIGC.autopeek_training.js");
+  let text = fs.readFileSync(templatePath, "utf8");
+  const position = jsVectorArray(config.defaultPlayerStart.origin, "defaultPlayerStart.origin");
+  const angles = jsVectorArray(config.defaultPlayerStart.angles || "0 0 0", "defaultPlayerStart.angles");
+  const replacement = `const DEFAULT_PLAYER_SPAWN = {\n  position: ${position},\n  angles: ${angles},\n};`;
+  text = text.replace(
+    /const DEFAULT_PLAYER_SPAWN = \{\r?\n\s*position: \[[^\]]+\],\r?\n\s*angles: \[[^\]]+\],\r?\n\};/,
+    replacement,
+  );
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, text, "utf8");
+}
+
 function main() {
   const args = parseArgs(process.argv);
   const repoRoot = path.resolve(__dirname, "..");
@@ -435,12 +560,16 @@ function main() {
 
   const sourceMap = path.join(repoRoot, "templates", "CodexAIGC.flat_empty.vmap");
   const targetMap = path.join(contentAddon, "maps", `${config.mapName}.vmap`);
-  let text = fs.readFileSync(sourceMap, "utf8");
+  const mapTemplate = fs.readFileSync(sourceMap, "utf8");
+  let text = mapTemplate;
   text = text.replace(/flat_empty/g, config.mapName);
   text = text.replace('"fixupEntityNames" "bool" "1"', '"fixupEntityNames" "bool" "0"');
+  text = addPlatformMaterialReference(text, config);
 
   const inserted = makeInsertedEntities(config);
-  text = replaceElementArrayAfter(text, '\t\t"children" "element_array"', inserted.entities);
+  const platformMeshes = makePlatformMeshes(mapTemplate, config);
+  const worldChildren = [platformMeshes, inserted.entities].filter(Boolean).join(",\n");
+  text = replaceElementArrayAfter(text, '\t\t"children" "element_array"', worldChildren);
   text = replaceElementArrayAfter(
     text,
     '\t\t"nodes" "element_array"',
@@ -454,7 +583,7 @@ function main() {
 
   fs.mkdirSync(path.dirname(targetMap), { recursive: true });
   fs.writeFileSync(targetMap, text, "utf8");
-  copyTemplate(repoRoot, "CodexAIGC.autopeek_training.js", path.join(contentAddon, "scripts", "autopeek_training.js"));
+  writeTrainingScript(repoRoot, config, path.join(contentAddon, "scripts", "autopeek_training.js"));
   copyTemplate(repoRoot, "CodexAIGC.autopeek_training_builtin_data.js", path.join(contentAddon, "scripts", "autopeek_training_builtin_data.js"));
   copyTemplate(repoRoot, "CodexAIGC.autopeek_training_binds.cfg", path.join(contentAddon, "cfg", "autopeek_training_binds.cfg"));
   copyTemplate(repoRoot, "CodexAIGC.autopeek_training_recover.cfg", path.join(contentAddon, "cfg", "autopeek_training_recover.cfg"));
